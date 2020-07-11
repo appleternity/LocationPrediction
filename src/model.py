@@ -15,8 +15,8 @@ class HAttention(object):
 
     def build_model(self): 
         # input
-        self.input_text = tf.placeholder(tf.int32, [None, self.conf.text_len], name="intput_text")
-        self.input_char = tf.placeholder(tf.int32, [None, self.conf.char_len], name="intput_char")
+        self.input_text = tf.placeholder(tf.int32, [None, self.conf.max_len], name="intput_text")
+        self.input_char = tf.placeholder(tf.int32, [None, self.conf.max_char_len], name="intput_char")
         self.input_dropout_rate = tf.placeholder(tf.float32, name="input_dropout_rate")
         self.input_label = tf.placeholder(tf.int32, [None], name="input_label")
         self.input_country_label = tf.placeholder(tf.int32, [None], name="input_country_label")
@@ -32,7 +32,7 @@ class HAttention(object):
 
         # position encoding
         text_rep += self.embedding(tf.tile(tf.expand_dims(tf.range(tf.shape(text_rep)[1]), 0), [tf.shape(text_rep)[0], 1]),
-                                      vocab_size=self.conf.text_len, 
+                                      vocab_size=self.conf.max_len, 
                                       dim=self.conf.hidden_dim,
                                       scope="enc_pe",
                                       zero_pad=False)
@@ -55,7 +55,7 @@ class HAttention(object):
         # char part
         char_rep = self.embedding(self.input_char, vocab_size=self.conf.char_size, dim=self.conf.char_dim, zero_pad=True, scope="char_emb")
         char_rep += self.embedding(tf.tile(tf.expand_dims(tf.range(tf.shape(char_rep)[1]), 0), [tf.shape(char_rep)[0], 1]),
-                                      vocab_size=self.conf.char_len, 
+                                      vocab_size=self.conf.max_char_len, 
                                       dim=self.conf.char_hidden_dim,
                                       scope="enc_pe_char",
                                       zero_pad=False)
@@ -91,7 +91,7 @@ class HAttention(object):
         print("text_rep+char_rep shape = ", text_rep.get_shape())
         
         # meta features
-        if self.conf.meta_feature:
+        if self.conf.use_meta:
             time_vec = self.embedding(self.input_time, vocab_size=self.conf.time_size, dim=self.conf.meta_dim, zero_pad=False, scope="time_emb")
             lang_vec = self.embedding(self.input_lang, vocab_size=self.conf.lang_size, dim=self.conf.meta_dim, zero_pad=False, scope="lang_emb")
             timezone_vec = self.embedding(self.input_timezone, vocab_size=self.conf.timezone_size, dim=self.conf.meta_dim, zero_pad=False, scope="timezone_emb")
@@ -106,7 +106,7 @@ class HAttention(object):
         #output = tf.layers.dense(text_rep, self.conf.hidden_dim, activation=tf.nn.relu, kernel_regularizer=reg)
         #output = tf.nn.dropout(output, self.input_dropout_rate)
         output = text_rep
-        if self.conf.meta_feature:
+        if self.conf.use_meta:
             output = tf.concat([text_rep, time_vec, lang_vec, timezone_vec], axis=-1)
         output = tf.layers.dense(output, self.conf.output_size, kernel_regularizer=reg)
         print("output shape = ", output.get_shape())
@@ -137,7 +137,7 @@ class HAttention(object):
         self.loss = self.city_loss + self.country_loss
         #self.loss = self.city_loss
 
-        if self.conf.geo_cord:
+        if self.conf.use_coordinate:
             self.loss += self.longitude_loss + self.latitude_loss
 
         if self.conf.reg is True:
@@ -245,7 +245,7 @@ class HAttention(object):
         paddings = tf.ones_like(vec)*(-2**32+1)
         vec = tf.where(tf.equal(vec, 0), paddings, vec)
         vec = tf.nn.softmax(vec)
-        output = tf.matmul(tf.reshape(vec, (-1, 1, self.conf.text_len)), inputs)
+        output = tf.matmul(tf.reshape(vec, (-1, 1, self.conf.max_len)), inputs)
         output = tf.squeeze(output, 1)
         return output
 

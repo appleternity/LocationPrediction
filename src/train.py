@@ -1,8 +1,8 @@
 # current folder
-from util import Timer, build_embedding, get_batch_data, build_sparse_tensor, load_dictionary, saveh5, readh5
-from data import load_data, load_label, mongo_load_data, load_city_map
+from util import *
+from data import load_data, load_city_map
 from feature import *
-import config as conf
+from config import *
 from model import HAttention
 from evaluation import compute_median
 
@@ -13,119 +13,129 @@ import time
 import ujson as json
 import csv
 import geopy.distance
-from pymongo import MongoClient
 import h5py
+import argparse
 
 # TODO:
 # (1) when using "keep_training", check available first.
 # (2) check save model & batch normalization
 
-def turn2dict(label):
-    return {
-        l["tweet_id"]:l for l in label 
-    }
+def str2dict(s):
+    filter_dict = {}
+    for info in s.split("-"):
+        kernel_size, num = info.split(":")
+        filter_dict[int(kernel_size)] = int(num)
+    return filter_dict
+
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+def parse_arg():
+    parser = argparse.ArgumentParser(description="Train the model.")
+
+    # model setting
+    #parser.add_argument("--vocab_size", dest="vocab_size", help="vocabulary size of the model", type=int, default=None)
+    #parser.add_argument("--char_size", dest="char_size", help="character size of the model", type=int, default=None) 
+    #parser.add_argument("--output_size", dest="output_size", help="output size of the model", type=int, default=None)
+
+    parser.add_argument("--max_len", dest="max_len", help="maximum length of the tokens", type=int, default=30)
+    parser.add_argument("--max_char_len", dest="max_char_len", help="maximum length of the characters", type=int, default=140)
+    parser.add_argument("--minfreq", dest="minfreq", help="minimum frequency of the vocabulary and character", type=int, default=10)
+
+    parser.add_argument("--emb_dim", dest="emb_dim", help="word embedding dimension", type=int, default=200)
+    parser.add_argument("--hidden_dim", dest="hidden_dim", help="hidden dimension", type=int, default=200)
+    parser.add_argument("--num_head", dest="num_head", help="number of head of the transformer", type=int, default=10)
+
+    parser.add_argument("--char_dim", dest="char_dim", help="character embedding dimension", type=int, default=100)
+    parser.add_argument("--char_hidden_dim", dest="char_hidden_dim", help="character hidden dimension", type=int, default=100)
+    parser.add_argument("--char_num_head", dest="char_num_head", help="number of head of the character transformer", type=int, default=8)
+    parser.add_argument("--filter", dest="filter_list", help="filter configuration of the character CNN, ex: 3:64-4:64", type=str2dict, default={3:64, 4:64, 5:64, 6:64, 7:64})
+
+    parser.add_argument("--use_meta", dest="use_meta", help="whether use meta feature or not", type=str2bool, default=False)
+    parser.add_argument("--meta_dim", dest="meta_dim", help="dimension of the meta data", type=int, default=50)
+    
+    parser.add_argument("--use_coordinate", dest="use_coordinate", help="whether use coordinate feature or not", type=str2bool, default=False)
+    parser.add_argument("--normalize_coordinate", dest="normalize_coordinate", help="whether normalize the coordinate or not", type=str2bool, default=False)
+
+    # training setting
+    parser.add_argument("--dropout_rate", dest="dropout_rate", help="dropout rate across the model", type=float, default=0.05)
+    parser.add_argument("--learning_rate", dest="learning_rate", help="learning rate", type=float, default=1e-4)
+    parser.add_argument("--batch_size", dest="batch_size", help="batch size", type=int, default=128)
+    parser.add_argument("--epochs", dest="epochs", help="number of epochs for training", type=int, default=30)
+    parser.add_argument("--reg", dest="reg", help="whether use regularizer or not", type=str2bool, default=False)
+    parser.add_argument("--reg_weight", dest="reg_weight", help="weighting for regularizer", type=float, default=1e-4)
+
+    # other setting
+    parser.add_argument("--data_redo", dest="data_redo", help="re-process the data again", type=str2bool, default=False)
+    parser.add_argument("--note", dest="note", help="note for the model name", type=str, default="")
+
+    #geo_cord = False
+    #meta_feature = False
+
+    return parser.parse_args()
+
+def check_data_exist(folder_path):
+    return all(os.path.isfile(os.path.join(folder_path, "{}.h5".format(data))) for data in ["train", "valid", "test"])
 
 def train_main():
-    if conf.process_data:
-        # load data
-        """
-        with Timer("loading label", 1):
-            if conf.city == "country":
-                train_label = load_label(conf.train_label, conf, lambda x:x.split("-")[-1])
-                valid_label = load_label(conf.valid_label, conf, lambda x:x.split("-")[-1])
-                test_label = load_label(conf.test_label, conf, lambda x:x.split("-")[-1])
-            else:
-                train_label = load_label(conf.train_label, conf)
-                valid_label = load_label(conf.valid_label, conf)
-                test_label = load_label(conf.test_label, conf)
+  
+    arg = parse_arg()
+    print(arg)
+    config = Configuration(arg=arg)
 
+    folder_path = os.path.join(model_dir, "location_{}".format(arg.note))
+    if not os.path.isdir(folder_path):
+        os.mkdir(folder_path)
+
+    if not check_data_exist(folder_path) or arg.data_redo:
         with Timer("loading data", 1):
-            train_data = load_data(conf.train_data, feature_extractor, conf)
-            valid_data = load_data(conf.valid_data, feature_extractor, conf)
-            test_data = load_data(conf.test_data, feature_extractor, conf)
-        """
-
-        # load mongo data
-        with Timer("loading mongo data", 1):
-            query = {
-                "tweet_country":{"$in":["ph", "lk", "de"]}
-            }
-            #query = {}
-            data_projection = {
-                "_id":False, 
-                "tweet_id":True, 
-                "text":True, 
-                "raw_text":True,
-                "user_lang":True,
-                "user_time_zone":True,
-                "created_at":True
-            }
-            label_projection = {
-                "_id":False, 
-                "tweet_id":True, 
-                "tweet_city":True, 
-                "tweet_country":True,
-                "tweet_longitude":True,
-                "tweet_latitude":True
-            }
-            train_data = mongo_load_data("train", query, data_projection)
-            valid_data = mongo_load_data("valid", query, data_projection)
-            test_data = mongo_load_data("test", query, data_projection)
-
-            train_label = turn2dict(mongo_load_data("train", query, label_projection))
-            valid_label = turn2dict(mongo_load_data("valid", query, label_projection))
-            test_label = turn2dict(mongo_load_data("test", query, label_projection))
-
+            train = load_data(phrase="train")
+            valid = load_data(phrase="valid")
+            test = load_data(phrase="test")
             city_map = load_city_map() 
 
-        # process data
-        with Timer("getting_dictinoary", 1):
+        with Timer("getting dictinoary", 1):
             dictionary, char_dictionary = get_dictionary(
-                data_list=(train_data, valid_data),
-                name_list=["text"],
-                tokenizer=None, 
-                minfreq=conf.minfreq,
-                conf=conf
+                data=train,
+                minfreq=config.minfreq,
             )
+            print("num of words = ", len(dictionary))
+            print("num of chars = ", len(char_dictionary))
 
-        with Timer("turn2id", 1):
+        with Timer("turning text to id", 1):
             turn2id(
-                data_list=(train_data, valid_data, test_data),
-                name_list=["text"],
+                data_list=(train, valid, test),
                 dictionary=dictionary,
                 char_dictionary=char_dictionary
             )
 
-        with Timer("get_class", 1):
-            if conf.keep_training:
-                class_dictionary, country_dictionary = load_dictionary(conf.class_dictionary_path)
-            else:
-                class_dictionary, country_dictionary = get_classes(train_data, train_label)
-                
-                # save dictionary
-                with open(conf.class_dictionary_path, 'w', encoding='utf-8') as outfile:
-                    json.dump([class_dictionary, country_dictionary], outfile, indent=4)
+        with Timer("getting class dictionary", 1):
+            class_dictionary, country_dictionary = get_classes(train)
+            print("num of cities = ", len(class_dictionary))
+            print("num of countries = ", len(country_dictionary))
 
+        with Timer("turning label to id", 1):
             turn_label2id(
-                label_list=(train_label, valid_label, test_label),
+                data_list=(train, valid, test),
                 dictionary=class_dictionary,
                 country_dictionary=country_dictionary,
-                city_map=city_map
             )
-        print("num of classes = ", len(class_dictionary))
        
-        with Timer("meta data", 1):
-            if conf.keep_training:
-                lang_dictionary, timezone_dictionary = load_dictionary(conf.meta_dictionary_path)
-            else:
-                lang_dictionary, timezone_dictionary = get_meta_class(
-                    data_list=(train_data, valid_data)
-                )
-                with open(conf.meta_dictionary_path, 'w', encoding='utf-8') as outfile:
-                    json.dump([lang_dictionary, timezone_dictionary], outfile, indent=4)
+        with Timer("getting meta dictionary", 1):
+            lang_dictionary, timezone_dictionary = get_meta_class(train)
+            print("num of languages = ", len(lang_dictionary))
+            print("num of timezones = ", len(timezone_dictionary))
 
+        with Timer("turning meta to id", 1):
             turn_meta2id(
-                data_list=(train_data, valid_data, test_data),
+                data_list=(train, valid, test),
                 lang_dictionary=lang_dictionary,
                 timezone_dictionary=timezone_dictionary
             )
@@ -135,56 +145,63 @@ def train_main():
         with Timer("create_data", 1):
             # create training data
             train, valid, test = create_data(
-                data_list=(train_data, valid_data, test_data),
-                label_list=(train_label, valid_label, test_label),
-                conf=conf
+                data_list=(train, valid, test), 
+                max_len=config.max_len, 
+                max_char_len=config.max_char_len,
             )
+
+        # save all dictionary
+        save_dictionary(dictionary, os.path.join(folder_path, "dictionary.json"))
+        save_dictionary(char_dictionary, os.path.join(folder_path, "char_dictionary.json"))
+        save_dictionary(class_dictionary, os.path.join(folder_path, "class_dictionary.json"))
+        save_dictionary(country_dictionary, os.path.join(folder_path, "country_dictionary.json"))
+        save_dictionary(lang_dictionary, os.path.join(folder_path, "lang_dictionary.json"))
+        save_dictionary(timezone_dictionary, os.path.join(folder_path, "timezone_dictionary.json"))
+        
         # save data to .h5 file
-        saveh5(train, conf.train_file)
-        saveh5(valid, conf.valid_file)
-        saveh5(test, conf.test_file)
+        saveh5(train, os.path.join(folder_path, "train.h5"))
+        saveh5(valid, os.path.join(folder_path, "valid.h5"))
+        saveh5(test, os.path.join(folder_path, "test.h5"))
 
     else:
         # read from .h5 file
         print("loading processed data directly")
-        train = readh5(conf.train_file)
-        valid = readh5(conf.valid_file)
-        test = readh5(conf.test_file)
-        class_dictionary, country_dictionary = load_dictionary(conf.class_dictionary_path)
-        dictionary = load_dictionary(conf.word_dictionary_path)
-        dictionary, char_dictionary = dictionary["dict"], dictionary["char_dict"]
-        lang_dictionary, timezone_dictionary = load_dictionary(conf.meta_dictionary_path)
+        train = readh5(os.path.join(folder_path, "train.h5"))
+        valid = readh5(os.path.join(folder_path, "valid.h5"))
+        test = readh5(os.path.join(folder_path, "test.h5"))
+        dictionary = load_dictionary(os.path.join(folder_path, "dictionary.json"))
+        char_dictionary = load_dictionary(os.path.join(folder_path, "char_dictionary.json"))
+        class_dictionary = load_dictionary(os.path.join(folder_path, "class_dictionary.json"))
+        country_dictionary = load_dictionary(os.path.join(folder_path, "country_dictionary.json"))
+        lang_dictionary = load_dictionary(os.path.join(folder_path, "lang_dictionary.json"))
+        timezone_dictionary = load_dictionary(os.path.join(folder_path, "timezone_dictionary.json"))
     
     # geo information
     class_mapping = {v:k for k, v in class_dictionary.items()}
-    mongo = MongoClient("localhost")["twitter_location"]
-    geo_mapping = {
-        r["city"]:(r["lat_value"], r["lon_value"]) 
-        for r in mongo["city_map"].find(
-            {}, 
-            projection={"_id":False, "city":True, "lat_value":True, "lon_value":True}
-        )
-    }
+    geo_mapping = load_city_map()
 
     # update information to config
-    conf.output_size = len(class_dictionary)
-    conf.country_output_size = len(country_dictionary)
-    conf.vocab_size = len(dictionary) - 1
-    conf.char_size = len(char_dictionary) - 1
-    conf.time_size = 24*6
-    conf.timezone_size = len(timezone_dictionary)
-    conf.lang_size = len(lang_dictionary)
+    config.output_size = len(class_dictionary)
+    config.country_output_size = len(country_dictionary)
+    config.vocab_size = len(dictionary) - 1
+    config.char_size = len(char_dictionary) - 1
+    config.time_size = 24*6
+    config.timezone_size = len(timezone_dictionary)
+    config.lang_size = len(lang_dictionary)
+    
+    config.save(os.path.join(folder_path, "config.json"))
 
     # scale longitude & latitude
-    train["longitude"] = train["longitude"]
-    valid["longitude"] = valid["longitude"]
-    test["longitude"] = test["longitude"]
+    if config.normalize_coordinate:
+        train["longitude"] = train["longitude"] / 180.0
+        valid["longitude"] = valid["longitude"] / 180.0
+        test["longitude"] = test["longitude"] / 180.0
     
-    train["latitude"] = train["latitude"]
-    valid["latitude"] = valid["latitude"]
-    test["latitude"] = test["latitude"]
+        train["latitude"] = train["latitude"] / 90.0
+        valid["latitude"] = valid["latitude"] / 90.0
+        test["latitude"] = test["latitude"] / 90.0
     
-    with open(conf.history_path, 'w', encoding='utf-8') as outfile:
+    with open(os.path.join(folder_path, "history.json"), 'w', encoding='utf-8') as outfile:
         pass
 
     with tf.Graph().as_default():
@@ -196,27 +213,32 @@ def train_main():
 
             # build model
             with Timer("building model", 2):
-                model = HAttention(conf)
+                model = HAttention(config)
                 model.build_model()
+            
+            print("initialize variable")
+            sess.run(tf.global_variables_initializer())
 
-            if not conf.keep_training:
+            """
+            if not config.keep_training:
                 print("initialize variable")
                 # initialization
                 sess.run(tf.global_variables_initializer())
                 print("finish initialize")
-                conf.start_epoch = -1
+                config.start_epoch = -1
             else:
-                model.saver.restore(sess, os.path.join(conf.model_dir, "model_e{}".format(conf.start_epoch)))
-            
+                model.saver.restore(sess, os.path.join(config.model_dir, "model_e{}".format(config.start_epoch)))
+            """
+
             train_name_list = ("text", "char", "time", "timezone", "lang", "label", "country", "longitude", "latitude")
             test_name_list = ("text", "char", "time", "timezone", "lang", "label")
             total_loss = 0
             total_acc = 0
-            for e in range(conf.start_epoch+1, conf.epochs):
+            for e in range(0, config.epochs):
                 with Timer("Training epoch [{:>3}]".format(e), 2):
                     for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
                             y_label, y_country, y_long, y_lat) in get_batch_data(
-                                    train, train_name_list, conf.batch_size):
+                                    train, train_name_list, config.batch_size):
                         
                         _, loss, acc = sess.run([model.optim, model.loss, model.acc], feed_dict={
                             model.input_text:x_text,
@@ -228,7 +250,7 @@ def train_main():
                             model.input_country_label:y_country,
                             model.input_long_label:y_long,
                             model.input_lat_label:y_lat,
-                            model.input_dropout_rate:conf.dropout_rate,
+                            model.input_dropout_rate:config.dropout_rate,
                         })
                         total_loss = (total_loss * (count-1) + loss) / count
                         total_acc = (total_acc * (count-1) + acc) / count
@@ -244,7 +266,7 @@ def train_main():
                 results = []
                 predicts = []
                 for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
-                        y_label) in get_batch_data(valid, test_name_list, conf.batch_size, phase="test"):
+                        y_label) in get_batch_data(valid, test_name_list, config.batch_size, phase="test"):
                     result, predict = sess.run([model.result, model.predict], feed_dict={
                         model.input_text:x_text,
                         model.input_time:x_time,
@@ -262,11 +284,11 @@ def train_main():
                 acc = np.sum(results) / results.shape[0]
                 print("Valid Acc = {:.6f}".format(acc))
                
-                with open(os.path.join(conf.model_dir, "predict_e{}.json".format(e)), 'w', encoding='utf-8') as outfile:
+                with open(os.path.join(config.model_dir, "predict_e{}.json".format(e)), 'w', encoding='utf-8') as outfile:
                     json.dump(predicts.tolist(), outfile, indent=4)
                 
                 # save model
-                model.saver.save(sess=sess, save_path=os.path.join(conf.model_dir, "model_e{}".format(e)))
+                model.saver.save(sess=sess, save_path=os.path.join(config.model_dir, "model_e{}".format(e)))
                 history_info = {"epoch":e, "valid_acc":acc, "train_acc":total_acc, "train_loss":total_loss}
                 
                 # test
@@ -281,7 +303,7 @@ def train_main():
                 cw51s = []
                 cw52s = []
                 for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
-                        y_label) in get_batch_data(test, test_name_list, conf.batch_size, phase="test"):
+                        y_label) in get_batch_data(test, test_name_list, config.batch_size, phase="test"):
                     result, predict, w1, w2, cw31, cw32, cw41, cw42, cw51, cw52 = sess.run([
                         model.result, 
                         model.predict,
@@ -346,7 +368,7 @@ def train_main():
                 history_info["avg_distance"] = avg_d
                 history_info["med_distance"] = med_d
 
-                with open(os.path.join(conf.model_dir, "test_e{}.csv".format(e)), 'w', encoding='utf-8', newline="") as outfile:
+                with open(os.path.join(config.model_dir, "test_e{}.csv".format(e)), 'w', encoding='utf-8', newline="") as outfile:
                     writer = csv.writer(outfile)
                     writer.writerow(["avg", avg_d, "med", med_d])
                     o = np.hstack([
@@ -356,7 +378,7 @@ def train_main():
                     ])
                     writer.writerows(o.tolist())
                
-                with h5py.File(os.path.join(conf.model_dir, "weights_e{}.h5".format(e)), 'w') as outfile:
+                with h5py.File(os.path.join(config.model_dir, "weights_e{}.h5".format(e)), 'w') as outfile:
                     outfile.create_dataset("w1s", data=w1s)
                     outfile.create_dataset("w2s", data=w2s)
                     outfile.create_dataset("cw31s", data=cw31s)
@@ -366,7 +388,7 @@ def train_main():
                     outfile.create_dataset("cw51s", data=cw51s)
                     outfile.create_dataset("cw52s", data=cw52s)
 
-                with open(conf.history_path, 'a', encoding='utf-8') as outfile:
+                with open(config.history_path, 'a', encoding='utf-8') as outfile:
                     outfile.write(json.dumps(history_info) + "\n")
 
 if __name__ == "__main__":

@@ -21,6 +21,11 @@ def preprocessing():
     label_file = arg.label_path
     data_file = arg.tweet_path
 
+    # city map
+    #with open(os.path.join(data_dir, "city_map.json"), 'r', encoding='utf-8') as infile:
+    #    city_map = json.load(infile)
+    #return city_map
+
     print("loading label: ", label_file)
     label = {}
     with open(label_file, "r", encoding='utf-8') as infile:
@@ -71,6 +76,9 @@ def preprocessing():
         for i, line in enumerate(infile):
             if i % 100 == 0:
                 print("\x1b[2K\rLoading Data: {:>5}".format(i), end="")
+            
+            if i == 50000:
+                break
 
             data = json.loads(line)
             if "id_str" in data:

@@ -1,34 +1,23 @@
 from util import Timer
-from pymongo import MongoClient
+import pandas as pd
+import ujson as json
+from config import *
+import os
 
-try:
-    import ujson as json
-except:
-    import json
-
-id_city_key = {
-    "hashed_tweet_id": ("hashed_tweet_id", "city"), 
-    "tweet_id": ("tweet_id", "tweet_city"), 
-    "id_str": ("id_str", "tweet_city")
-}
-
-# TODO: not finished
-def mongo_load_data(phase, query, projection):
-    mongo = MongoClient("localhost")["twitter_location"][phase]
-    res = mongo.find(query, projection=projection)
-    return [r for r in res]
-
+###################
+# new
 def load_city_map():
-    mongo = MongoClient("localhost")["twitter_location"]["city_map"]
-    city = {
-        r["city"]:(r["lat_value"], r["lon_value"]) 
-        for r in mongo["city_map"].find(
-            {}, 
-            projection={"_id":False, "city":True, "lat_value":True, "lon_value":True}
-        )
-    }
-    return city
+    with open(os.path.join(data_dir, "city_map.json"), 'r', encoding='utf-8') as infile:
+        city_map = json.load(infile)
+    return city_map
 
+def load_data(phrase="train"):
+    data = pd.read_parquet(os.path.join(data_dir, "{}.parquet".format(phrase)))
+    return data
+
+###########################
+# old
+"""
 def get_id_city_key(d):
     id_key, city_key = None, None
     for k in id_city_key.keys():
@@ -71,6 +60,6 @@ def load_label(filename, conf, lamb=lambda x:x):
                 print("\rprocessing {} lines     ".format(count), end="")
     print()
     return label
-
+"""
 if __name__ == "__main__":
     pass

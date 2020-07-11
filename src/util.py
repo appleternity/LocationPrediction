@@ -39,6 +39,57 @@ class Timer(object):
             elif self.verbose == 2:
                 print("Finishing in {} sec at {} ...".format(t, self.t2))
 
+class Configuration(object):
+    def __init__(self, arg=None, path=None):
+        if arg is not None:
+            # setting
+            self.vocab_size     = None
+            self.char_size      = None
+            self.output_size    = None
+            self.time_size      = None
+            self.timezone_size  = None
+            self.lang_size      = None
+            self.max_len        = arg.max_len
+            self.max_char_len   = arg.max_char_len
+            self.minfreq        = arg.minfreq
+           
+            self.emb_dim        = arg.emb_dim
+            self.hidden_dim     = arg.hidden_dim
+            self.num_head       = arg.num_head
+            
+            self.char_dim        = arg.char_dim
+            self.char_hidden_dim = arg.char_hidden_dim
+            self.char_num_head   = arg.char_num_head
+            self.filter_list     = arg.filter_list
+
+            self.use_meta = arg.use_meta
+            self.meta_dim = arg.meta_dim
+
+            self.use_coordinate       = arg.use_coordinate
+            self.normalize_coordinate = arg.normalize_coordinate
+
+            # training setting
+            self.dropout_rate   = arg.dropout_rate
+            self.learning_rate  = arg.learning_rate
+            self.batch_size     = arg.batch_size
+            self.epochs         = arg.epochs
+            self.reg            = arg.reg
+            self.reg_weight     = arg.reg_weight
+
+        elif path is not None:
+            with open(path, 'r', encoding='utf-8') as infile:
+                self.__dict__.update(json.load(infile))
+        else:
+            print("Please at least pass arg or path to initialize the Configuration object.")
+
+    def save(self, path):
+        with open(path, 'w', encoding='utf-8') as outfile:
+            json.dump(self.__dict__, outfile, indent=4)
+
+def save_dictionary(data, path):
+    with open(path, 'w', encoding='utf-8') as outfile:
+        json.dump(data, outfile, indent=4)
+
 def load_dictionary(path):
     with open(path, 'r', encoding='utf-8') as infile:
         data = json.load(infile)
@@ -67,77 +118,20 @@ def test_timer():
 
 def get_batch_data(data, name_list, batch_size, label_name="label", phase="train"):
     if phase == "train":
-        label = data[label_name]
-        true_length = label.shape[0]
-        length = true_length + batch_size - (true_length % batch_size)
-        index_list = np.array([i for i in range(0, length)])
-        index_list[index_list>=true_length] -= true_length
-        np.random.shuffle(index_list)
-
+        true_length = data[label_name].shape[0]
+        index_list = np.random.permutation(true_length)
+        index_list = index_list[:true_length//batch_size*batch_size] # drop the rest of data
         index_list = index_list.reshape(-1, batch_size)
-        
+
         total_count = index_list.shape[0]
         for count, indices in enumerate(index_list, 1):
             yield count, total_count, (data[name][indices] for name in name_list)
 
-    elif phase == "test" :
-        label = data[label_name]
-        true_length = label.shape[0]
+    elif phase == "test" or phrase == "valid":
+        true_length = data[label_name].shape[0]
         total_count = true_length // batch_size
         offset = 0 if true_length % batch_size == 0 else 1
         for i in range(0, (true_length//batch_size) + offset):
-            start = i*batch_size
-            end = i*batch_size+batch_size
-            end = min(end, true_length)
-            indices = [i for i in range(start, end)]
-            yield i+1, total_count, (data[name][indices] for name in name_list)
-
-def get_batch_data_class(data, name_list, batch_size, category, phase="train"):
-    if phase == "train":
-        label_index = data["category_dictionary"][category]
-        true_length = label_index.shape[0]
-        length = true_length + batch_size - (true_length % batch_size)
-        if true_length < length:
-            index_list = np.random.choice(label_index, length-true_length)
-            label_index = np.hstack([label_index, index_list])
-        np.random.shuffle(label_index)
-        label_index = label_index.reshape(-1, batch_size)
-        
-        total_count = label_index.shape[0]
-        for count, indices in enumerate(label_index, 1):
-            yield count, total_count, (data[name][indices] for name in name_list)
-
-    elif phase == "test":
-        label = data["category_dictionary"][category]
-        true_length = label.shape[0]
-        total_count = true_length // batch_size
-        for i in range(0, (true_length//batch_size) + 1):
-            start = i*batch_size
-            end = i*batch_size+batch_size
-            end = min(end, true_length)
-            indices = [i for i in range(start, end)]
-            yield i+1, total_count, (data[name][indices] for name in name_list)
-
-def get_batch_data_hierarchical(data, name_list, batch_size, phase="train"):
-    if phase == "train":
-        city_label = data["city_label"]
-        true_length = city_label.shape[0]
-        length = true_length + batch_size - (true_length % batch_size)
-        index_list = np.array([i for i in range(0, length)])
-        index_list[index_list>=true_length] -= true_length
-        np.random.shuffle(index_list)
-
-        index_list = index_list.reshape(-1, batch_size)
-        
-        total_count = index_list.shape[0]
-        for count, indices in enumerate(index_list, 1):
-            yield count, total_count, (data[name][indices] for name in name_list)
-
-    elif phase == "test" :
-        label = data["city_label"]
-        true_length = label.shape[0]
-        total_count = true_length // batch_size
-        for i in range(0, (true_length//batch_size) + 1):
             start = i*batch_size
             end = i*batch_size+batch_size
             end = min(end, true_length)
