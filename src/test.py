@@ -1,13 +1,7 @@
-import sys
-sys.path.append("/home/appleternity/workspace/lab/graph/baseline/src")
-
-# src
-from util import Timer, build_embedding, get_batch_data, build_sparse_tensor, load_dictionary
+from util import *
 from data import load_data, load_label
-
-# current folder
 from feature import *
-import config as conf
+from config import *
 from model import HAttention
 
 # lib
@@ -22,6 +16,7 @@ import csv
 # (2) preprocessing testing data (tokenize)
 
 def test_main():
+    """
     # load data
     with Timer("loading label", 1):
         #test_label = load_label(conf.test_label, conf, lambda x:x.split("-")[-1])
@@ -60,21 +55,35 @@ def test_main():
     # update information to config
     conf.output_size = len(class_dictionary)
     conf.vocab_size = len(dictionary) - 1
-    
+    """
+
+    folder_path = os.path.join(model_dir, "location_{}".format(arg.note))
+
+    test = readh5(os.path.join(folder_path, "test.h5"))
+    dictionary = load_dictionary(os.path.join(folder_path, "dictionary.json"))
+    char_dictionary = load_dictionary(os.path.join(folder_path, "char_dictionary.json"))
+    class_dictionary = load_dictionary(os.path.join(folder_path, "class_dictionary.json"))
+    country_dictionary = load_dictionary(os.path.join(folder_path, "country_dictionary.json"))
+    lang_dictionary = load_dictionary(os.path.join(folder_path, "lang_dictionary.json"))
+    timezone_dictionary = load_dictionary(os.path.join(folder_path, "timezone_dictionary.json"))
+    config = Configuration(os.path.join(folder_path, "configuration.json"))
+
+
     with tf.Graph().as_default():
         session_conf = tf.ConfigProto(
             allow_soft_placement=True,
         )
+        config.gpu_options.allow_growth=True
         sess = tf.Session(config=session_conf)
         with sess.as_default():
 
             # build model
             with Timer("building model", 2):
                 with tf.device("/cpu:0"):
-                    model = HAttention(conf)
+                    model = HAttention(config)
                     model.build_model()
                     sess.run(tf.global_variables_initializer())
-                    model.saver.restore(sess, os.path.join(conf.model_dir, "model_e{}".format(conf.testing_epoch)))
+                    model.saver.restore(sess, os.path.join(folder_path, "model_e{}".format(arg.testing_epoch)))
 
             name_list = ("text", "label")
 

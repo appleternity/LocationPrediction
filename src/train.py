@@ -75,6 +75,8 @@ def parse_arg():
     # other setting
     parser.add_argument("--data_redo", dest="data_redo", help="re-process the data again", type=str2bool, default=False)
     parser.add_argument("--note", dest="note", help="note for the model name", type=str, default="")
+    parser.add_argument("--gpu", dest="gpu", help="gpu setting", type=str, default="0")
+    parser.add_argument("--train_data", dest="train_data", help="training_data", type=str, default="train")
 
     #geo_cord = False
     #meta_feature = False
@@ -85,9 +87,9 @@ def check_data_exist(folder_path):
     return all(os.path.isfile(os.path.join(folder_path, "{}.h5".format(data))) for data in ["train", "valid", "test"])
 
 def train_main():
-  
     arg = parse_arg()
     print(arg)
+    os.environ["CUDA_VISIBLE_DEVICES"] = arg.gpu
     config = Configuration(arg=arg)
 
     folder_path = os.path.join(model_dir, "location_{}".format(arg.note))
@@ -96,7 +98,7 @@ def train_main():
 
     if not check_data_exist(folder_path) or arg.data_redo:
         with Timer("loading data", 1):
-            train = load_data(phrase="train")
+            train = load_data(phrase=config.train_data)
             valid = load_data(phrase="valid")
             test = load_data(phrase="test")
             city_map = load_city_map() 
@@ -207,7 +209,9 @@ def train_main():
     with tf.Graph().as_default():
         session_conf = tf.ConfigProto(
             allow_soft_placement=True,
+            gpu_options=tf.GPUOptions(allow_growth=True)
         )
+
         sess = tf.Session(config=session_conf)
         with sess.as_default():
 
@@ -243,109 +247,79 @@ def train_main():
                         _, loss, acc = sess.run([model.optim, model.loss, model.acc], feed_dict={
                             model.input_text:x_text,
                             model.input_char:x_char,
-                            model.input_time:x_time,
-                            model.input_timezone:x_timezone,
-                            model.input_lang:x_lang,
                             model.input_label:y_label,
                             model.input_country_label:y_country,
-                            model.input_long_label:y_long,
-                            model.input_lat_label:y_lat,
                             model.input_dropout_rate:config.dropout_rate,
+                            #model.input_timezone:x_timezone,
+                            #model.input_time:x_time,
+                            #model.input_lang:x_lang,
+                            #model.input_long_label:y_long,
+                            #model.input_lat_label:y_lat,
                         })
                         total_loss = (total_loss * (count-1) + loss) / count
                         total_acc = (total_acc * (count-1) + acc) / count
                         
-                        if count % 100 == 0:
-                            print("\riter: {}/{} [{:.2f}%] acc={:.3f}, loss={:.3f}".format(
+                        if count % 1 == 0:
+                            print("\riter: {}/{} [{:.2f}%] acc={:.5f}, loss={:.5f}".format(
                                 count, total_count, count/total_count*100, total_acc, total_loss
                             ), end="")
- 
+
                     print()
                 
                 # evaluation
                 results = []
                 predicts = []
                 for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
-                        y_label) in get_batch_data(valid, test_name_list, config.batch_size, phase="test"):
-                    result, predict = sess.run([model.result, model.predict], feed_dict={
+                        y_label) in get_batch_data(valid, test_name_list, config.batch_size, phase="valid"):
+                    result, predict, acc = sess.run([model.result, model.predict, model.acc], feed_dict={
                         model.input_text:x_text,
-                        model.input_time:x_time,
-                        model.input_timezone:x_timezone,
-                        model.input_lang:x_lang,
                         model.input_char:x_char,
                         model.input_label:y_label,
-                        model.input_dropout_rate:0
+                        model.input_dropout_rate:0.0
+                        #model.input_time:x_time,
+                        #model.input_timezone:x_timezone,
+                        #model.input_lang:x_lang,
                     })
                     results.append(result)
                     predicts.append(predict)
+                    print(acc)
 
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
                 acc = np.sum(results) / results.shape[0]
                 print("Valid Acc = {:.6f}".format(acc))
                
-                with open(os.path.join(config.model_dir, "predict_e{}.json".format(e)), 'w', encoding='utf-8') as outfile:
+                with open(os.path.join(folder_path, "predict_e{}.json".format(e)), 'w', encoding='utf-8') as outfile:
                     json.dump(predicts.tolist(), outfile, indent=4)
                 
                 # save model
-                model.saver.save(sess=sess, save_path=os.path.join(config.model_dir, "model_e{}".format(e)))
+                model.saver.save(sess=sess, save_path=os.path.join(folder_path, "model_e{}".format(e)))
                 history_info = {"epoch":e, "valid_acc":acc, "train_acc":total_acc, "train_loss":total_loss}
                 
                 # test
                 results = []
                 predicts = []
-                w1s = []
-                w2s = []
-                cw31s = []
-                cw32s = []
-                cw41s = []
-                cw42s = []
-                cw51s = []
-                cw52s = []
                 for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
                         y_label) in get_batch_data(test, test_name_list, config.batch_size, phase="test"):
-                    result, predict, w1, w2, cw31, cw32, cw41, cw42, cw51, cw52 = sess.run([
+                    result, predict, acc = sess.run([
                         model.result, 
                         model.predict,
-                        model.weight_1,
-                        model.weight_2,
-                        model.char_weights["3_1"],
-                        model.char_weights["3_2"],
-                        model.char_weights["4_1"],
-                        model.char_weights["4_2"],
-                        model.char_weights["5_1"],
-                        model.char_weights["5_2"],
+                        model.acc,
                     ], feed_dict={
                         model.input_text:x_text,
-                        model.input_time:x_time,
-                        model.input_timezone:x_timezone,
-                        model.input_lang:x_lang,
                         model.input_char:x_char,
                         model.input_label:y_label,
-                        model.input_dropout_rate:0
+                        model.input_dropout_rate:0.0
+                        #model.input_time:x_time,
+                        #model.input_timezone:x_timezone,
+                        #model.input_lang:x_lang,
                     })
                     results.append(result)
                     predicts.append(predict)
-                    w1s.append(w1)
-                    w2s.append(w2)
-                    cw31s.append(cw31)
-                    cw32s.append(cw32)
-                    cw41s.append(cw41)
-                    cw42s.append(cw42)
-                    cw51s.append(cw51)
-                    cw52s.append(cw52)
+                    print(acc)
 
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
-                w1s = np.concatenate(w1s)
-                w2s = np.concatenate(w2s)
-                cw31s = np.concatenate(cw31s)
-                cw32s = np.concatenate(cw32s)
-                cw41s = np.concatenate(cw41s)
-                cw42s = np.concatenate(cw42s)
-                cw51s = np.concatenate(cw51s)
-                cw52s = np.concatenate(cw52s)
-
                 acc = np.sum(results) / results.shape[0]
                 print("Test Acc = {:.6f}".format(acc))
 
@@ -363,12 +337,13 @@ def train_main():
                 except Exception:
                     avg_d = 0
                     med_d = 0
+
                 print("avg distance={}, med distance={}".format(avg_d, med_d))
                 history_info["test_acc"] = acc
                 history_info["avg_distance"] = avg_d
                 history_info["med_distance"] = med_d
 
-                with open(os.path.join(config.model_dir, "test_e{}.csv".format(e)), 'w', encoding='utf-8', newline="") as outfile:
+                with open(os.path.join(folder_path, "test_e{}.csv".format(e)), 'w', encoding='utf-8', newline="") as outfile:
                     writer = csv.writer(outfile)
                     writer.writerow(["avg", avg_d, "med", med_d])
                     o = np.hstack([
@@ -377,18 +352,8 @@ def train_main():
                         test["label"].reshape(-1, 1)
                     ])
                     writer.writerows(o.tolist())
-               
-                with h5py.File(os.path.join(config.model_dir, "weights_e{}.h5".format(e)), 'w') as outfile:
-                    outfile.create_dataset("w1s", data=w1s)
-                    outfile.create_dataset("w2s", data=w2s)
-                    outfile.create_dataset("cw31s", data=cw31s)
-                    outfile.create_dataset("cw32s", data=cw32s)
-                    outfile.create_dataset("cw71s", data=cw41s)
-                    outfile.create_dataset("cw72s", data=cw42s)
-                    outfile.create_dataset("cw51s", data=cw51s)
-                    outfile.create_dataset("cw52s", data=cw52s)
 
-                with open(config.history_path, 'a', encoding='utf-8') as outfile:
+                with open(os.path.join(folder_path, "history.json"), 'a', encoding='utf-8') as outfile:
                     outfile.write(json.dumps(history_info) + "\n")
 
 if __name__ == "__main__":

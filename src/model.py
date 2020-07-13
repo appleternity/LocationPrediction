@@ -27,6 +27,8 @@ class HAttention(object):
         self.input_lang = tf.placeholder(tf.int32, [None], name="input_lang")
         self.input_timezone = tf.placeholder(tf.int32, [None], name="input_timezone")
 
+        self.keep_rate = 1-self.input_dropout_rate
+
         # self-attention model
         text_rep = self.embedding(self.input_text, vocab_size=self.conf.vocab_size, dim=self.conf.emb_dim, zero_pad=True)
 
@@ -44,6 +46,7 @@ class HAttention(object):
         text_rep, weights = self.multihead_attention(text_rep, text_rep, dim=self.conf.hidden_dim, num_heads=self.conf.num_head, scope="m2")
         text_rep = self.feedforward(text_rep, dims=[4*self.conf.hidden_dim, self.conf.hidden_dim], scope="f2")
         self.weight_2 = weights
+
         #text_rep = self.multihead_attention(text_rep, text_rep, dim=self.conf.hidden_dim, num_heads=self.conf.num_head, scope="m3")
         #text_rep = self.feedforward(text_rep, dims=[4*self.conf.hidden_dim, self.conf.hidden_dim], scope="f3")
         
@@ -140,7 +143,7 @@ class HAttention(object):
         if self.conf.use_coordinate:
             self.loss += self.longitude_loss + self.latitude_loss
 
-        if self.conf.reg is True:
+        if self.conf.reg:
             self.loss += tf.losses.get_regularization_loss()
 
         self.optim = tf.train.AdamOptimizer(learning_rate=self.conf.learning_rate).minimize(self.loss)
@@ -177,7 +180,7 @@ class HAttention(object):
                 results.append(result)
 
             vec = tf.concat(results, -1)
-            vec = tf.nn.dropout(vec, 1-self.input_dropout_rate)
+            vec = tf.nn.dropout(vec, self.keep_rate)
             return vec
 
     def cnn(self, vector, name):
@@ -330,7 +333,7 @@ class HAttention(object):
             outputs *= query_masks # broadcasting. (N, T_q, C)
               
             # Dropouts
-            outputs = tf.nn.dropout(outputs, 1-self.input_dropout_rate)
+            outputs = tf.nn.dropout(outputs, self.keep_rate)
             weights = outputs
 
             # Weighted sum

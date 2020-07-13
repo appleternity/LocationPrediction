@@ -76,6 +76,8 @@ class Configuration(object):
             self.reg            = arg.reg
             self.reg_weight     = arg.reg_weight
 
+            self.train_data = arg.train_data
+
         elif path is not None:
             with open(path, 'r', encoding='utf-8') as infile:
                 self.__dict__.update(json.load(infile))
@@ -127,16 +129,16 @@ def get_batch_data(data, name_list, batch_size, label_name="label", phase="train
         for count, indices in enumerate(index_list, 1):
             yield count, total_count, (data[name][indices] for name in name_list)
 
-    elif phase == "test" or phrase == "valid":
+    elif phase == "test" or phase == "valid":
         true_length = data[label_name].shape[0]
-        total_count = true_length // batch_size
-        offset = 0 if true_length % batch_size == 0 else 1
-        for i in range(0, (true_length//batch_size) + offset):
-            start = i*batch_size
-            end = i*batch_size+batch_size
-            end = min(end, true_length)
-            indices = [i for i in range(start, end)]
-            yield i+1, total_count, (data[name][indices] for name in name_list)
+        total_count = int(np.ceil(true_length / batch_size))
+        count = 0
+        for i in range(0, true_length, batch_size):
+            start = i
+            end = min(i+batch_size, true_length)
+            indices = [j for j in range(start, end)]
+            count += 1
+            yield count, total_count, (data[name][indices] for name in name_list)
 
 def build_sparse_tensor(array, indices, ones, size):
     indices = indices[:len(array)]
@@ -164,13 +166,16 @@ def saveh5(data, filename):
         for key, matrix in data.items():
             outfile.create_dataset(key, data=matrix)
 
-def readh5(filename):
+def readh5(filename, verbose=True):
+    print("Loading {}".format(filename))
     with h5py.File(filename, 'r') as infile:
         data = {}
         for key in infile.keys():
             matrix = np.empty(infile[key].shape, infile[key].dtype)
             infile[key].read_direct(matrix)
             data[key] = matrix
+            print("{} Loaded with shape = {}, dtype={}".format(key, str(matrix.shape), matrix.dtype))
+    print()
     return data
 
 if __name__ == "__main__":
