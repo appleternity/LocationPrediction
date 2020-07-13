@@ -57,10 +57,10 @@ def turn2id(data_list, dictionary, char_dictionary, max_len=30, max_char_len=140
 
 def turn_label2id(data_list, dictionary, country_dictionary):
     unk_city = dictionary["<unk>"]
-    unk_country = dictionary["<unk>"]
+    unk_country = country_dictionary["<unk>"]
     for i, data in enumerate(data_list):
         data["tweet_city"] = data["tweet_city"].apply(lambda city: dictionary.get(city, unk_city))
-        data["tweet_country"] = data["tweet_country"].apply(lambda country: dictionary.get(country, unk_country))
+        data["tweet_country"] = data["tweet_country"].apply(lambda country: country_dictionary.get(country, unk_country))
 
             # TODO: check if this will happen
             #if i != 3: # train & valid
@@ -95,10 +95,12 @@ def create_data(data_list, max_len=30, max_char_len=140):
     for data_count, data in enumerate(data_list, 1):
         label_array = np.zeros(len(data), dtype=np.int16) # 3000
         country_array = np.zeros(len(data), dtype=np.int16) # < 3000
-        long_array = np.zeros((len(data), 1), dtype=np.float32) # real value
-        lat_array = np.zeros((len(data), 1), dtype=np.float32) # real value
         text_array = np.zeros((len(data), max_len), dtype=np.int32) # vocab_size
         char_array = np.zeros((len(data), max_char_len), dtype=np.int32) # char_size
+        
+        long_array = np.zeros((len(data), 1), dtype=np.float32) # real value
+        lat_array = np.zeros((len(data), 1), dtype=np.float32) # real value
+        
         time_array = np.zeros(len(data), dtype=np.int16) # 360
         timezone_array = np.zeros(len(data), dtype=np.int16) # 24
         lang_array = np.zeros(len(data), dtype=np.int16) # < 1000
