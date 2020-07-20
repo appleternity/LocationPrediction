@@ -5,8 +5,8 @@ from dateutil.parser import parse as parse_time
 from collections import Counter
 
 def get_dictionary(data, minfreq=10):
-    data["text"] = data["text"].apply(lambda x: x.lower().split(" "))
-    count = Counter(token for sent in data["text"].tolist() for token in sent)
+    data["text_token"] = data["text"].apply(lambda x: x.lower().split(" "))
+    count = Counter(token for sent in data["text_token"].tolist() for token in sent)
     
     data["raw_text"] = data["raw_text"].apply(lambda x: x.lower())
     char_count = Counter(char for sent in data["raw_text"].tolist() for char in sent)
@@ -52,7 +52,11 @@ def turn2id(data_list, dictionary, char_dictionary, max_len=30, max_char_len=140
     unk_word = dictionary["<unk>"]
     unk_char = char_dictionary["<unk>"]
     for data in data_list:
-        data["text"] = data["text"].apply(lambda sent: [dictionary.get(t, unk_word) for t in sent[:max_len]])
+        if "text_token" in data:
+            data["text"] = data["text_token"].apply(lambda sent: [dictionary.get(t, unk_word) for t in sent[:max_len]])
+        else:
+            data["text_token"] = data["text"].apply(lambda x: x.lower().split(" "))
+            data["text"] = data["text_token"].apply(lambda sent: [dictionary.get(t, unk_word) for t in sent[:max_len]])
         data["char"] = data["raw_text"].apply(lambda sent: [char_dictionary.get(c, unk_char) for c in sent[:max_char_len]])
 
 def turn_label2id(data_list, dictionary, country_dictionary):

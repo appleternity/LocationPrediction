@@ -282,7 +282,6 @@ def train_main():
                     })
                     results.append(result)
                     predicts.append(predict)
-                    print(acc)
 
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
@@ -316,7 +315,6 @@ def train_main():
                     })
                     results.append(result)
                     predicts.append(predict)
-                    print(acc)
 
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
