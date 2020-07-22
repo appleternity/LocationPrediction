@@ -56,17 +56,18 @@ class Configuration(object):
             self.emb_dim        = arg.emb_dim
             self.hidden_dim     = arg.hidden_dim
             self.num_head       = arg.num_head
+            self.layer_num      = arg.layer_num
             
             self.char_dim        = arg.char_dim
             self.char_hidden_dim = arg.char_hidden_dim
             self.char_num_head   = arg.char_num_head
+            self.char_layer_num  = arg.char_layer_num
             self.filter_list     = arg.filter_list
 
-            self.use_meta = arg.use_meta
-            self.meta_dim = arg.meta_dim
-
-            self.use_coordinate       = arg.use_coordinate
-            self.normalize_coordinate = arg.normalize_coordinate
+            #self.use_meta = arg.use_meta
+            #self.meta_dim = arg.meta_dim
+            #self.use_coordinate       = arg.use_coordinate
+            #self.normalize_coordinate = arg.normalize_coordinate
 
             # training setting
             self.dropout_rate   = arg.dropout_rate
@@ -140,27 +141,6 @@ def get_batch_data(data, name_list, batch_size, label_name="label", phase="train
             count += 1
             yield count, total_count, (data[name][indices] for name in name_list)
 
-def build_sparse_tensor(array, indices, ones, size):
-    indices = indices[:len(array)]
-    ones = ones[:len(array)]
-    shape = np.array([len(array), size], dtype=np.int32)
-    indices = np.vstack([indices, array]).transpose()
-    
-    return indices, array, shape
-
-def test_word2vec():
-    #vectors = load_word2vec()
-    #print(vectors.wv["hello"])
-    embedding = build_embedding({
-        "<unk>":0,
-        "<nan>":1,
-        "hello":2,
-        "zero":5,
-        "src":3,
-        "aasdfasdfafds":4
-    })
-    print(embedding)
-
 def saveh5(data, filename):
     with h5py.File(filename, 'w') as outfile:
         for key, matrix in data.items():
@@ -179,9 +159,6 @@ def readh5(filename, verbose=True):
     return data
 
 if __name__ == "__main__":
-    #test_timer()
+    test_timer()
         
-    test_word2vec()
-
-
 

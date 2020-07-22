@@ -20,14 +20,11 @@ class HAttention(object):
         self.input_dropout_rate = tf.placeholder(tf.float32, name="input_dropout_rate")
         self.input_label = tf.placeholder(tf.int32, [None], name="input_label")
         self.input_country_label = tf.placeholder(tf.int32, [None], name="input_country_label")
-        self.input_long_label = tf.placeholder(tf.float32, [None, 1], name="intput_long_label")
-        self.input_lat_label = tf.placeholder(tf.float32, [None, 1], name="intput_lat_label")
-
-        self.input_time = tf.placeholder(tf.int32, [None], name="input_time")
-        self.input_lang = tf.placeholder(tf.int32, [None], name="input_lang")
-        self.input_timezone = tf.placeholder(tf.int32, [None], name="input_timezone")
-
         self.keep_rate = 1-self.input_dropout_rate
+
+        # for analysis
+        self.weight_list = []
+        self.char_weights = {}
 
         # self-attention model
         text_rep = self.embedding(self.input_text, vocab_size=self.conf.vocab_size, dim=self.conf.emb_dim, zero_pad=True)
@@ -39,17 +36,10 @@ class HAttention(object):
                                       scope="enc_pe",
                                       zero_pad=False)
 
-        text_rep, weights = self.multihead_attention(text_rep, text_rep, dim=self.conf.hidden_dim, num_heads=self.conf.num_head, scope="m1")
-        text_rep = self.feedforward(text_rep, dims=[4*self.conf.hidden_dim, self.conf.hidden_dim], scope="f1")
-        self.weight_1 = weights
-
-        text_rep, weights = self.multihead_attention(text_rep, text_rep, dim=self.conf.hidden_dim, num_heads=self.conf.num_head, scope="m2")
-        text_rep = self.feedforward(text_rep, dims=[4*self.conf.hidden_dim, self.conf.hidden_dim], scope="f2")
-        self.weight_2 = weights
-
-        #text_rep = self.multihead_attention(text_rep, text_rep, dim=self.conf.hidden_dim, num_heads=self.conf.num_head, scope="m3")
-        #text_rep = self.feedforward(text_rep, dims=[4*self.conf.hidden_dim, self.conf.hidden_dim], scope="f3")
-        
+        for l in range(1, self.conf.layer_num+1):
+            text_rep, weights = self.multihead_attention(text_rep, text_rep, dim=self.conf.hidden_dim, num_heads=self.conf.num_head, scope="m{}".format(l))
+            text_rep = self.feedforward(text_rep, dims=[4*self.conf.hidden_dim, self.conf.hidden_dim], scope="f{}".format(l))
+            self.weight_list.append(weights)
 
         # sentence-attention
         text_rep = tf.reduce_sum(text_rep, axis=1)
@@ -62,29 +52,19 @@ class HAttention(object):
                                       dim=self.conf.char_hidden_dim,
                                       scope="enc_pe_char",
                                       zero_pad=False)
-
-        """
-        char_rep = self.multihead_attention(char_rep, char_rep, dim=self.conf.char_hidden_dim, num_heads=self.conf.num_head, scope="char_m1")
-        char_rep = self.feedforward(char_rep, dims=[4*self.conf.char_hidden_dim, self.conf.char_hidden_dim], scope="char_f1")
-        #char_rep = self.multihead_attention(char_rep, char_rep, dim=self.conf.char_hidden_dim, num_heads=self.conf.num_head, scope="char_m2")
-        #char_rep = self.feedforward(char_rep, dims=[4*self.conf.char_hidden_dim, self.conf.char_hidden_dim], scope="char_f2")
-        char_rep = self.cnn_layer(char_rep, "char_cnn")
-        #char_rep = self.cnn(char_rep, "char_cnn")
-        print("char_rep shape = ", char_rep.get_shape())
-        """
+        
+        # run cnn
         char_rep_list = self.cnn(char_rep, "char_cnn")
+
+        # run self-attention
         all_tensors = [text_rep]
-        #all_tensors = []
-        self.char_weights = {}
         for kernel_size, char_rep in char_rep_list:
             dim = self.conf.filter_list[kernel_size]
-            char_rep, weight = self.multihead_attention(char_rep, char_rep, dim=dim, num_heads=self.conf.char_num_head, scope="char_k_{}_m1".format(kernel_size))
-            char_rep = self.feedforward(char_rep, dims=[4*dim, dim], scope="char_k{}_f1".format(kernel_size))
-            self.char_weights["{}_1".format(kernel_size)] = weight
 
-            char_rep, weight = self.multihead_attention(char_rep, char_rep, dim=dim, num_heads=self.conf.char_num_head, scope="char_k_{}_m2".format(kernel_size))
-            char_rep = self.feedforward(char_rep, dims=[4*dim, dim], scope="char_k{}_f2".format(kernel_size))
-            self.char_weights["{}_2".format(kernel_size)] = weight
+            for l in range(self.conf.char_layer_num, 1):
+                char_rep, weight = self.multihead_attention(char_rep, char_rep, dim=dim, num_heads=self.conf.char_num_head, scope="char_k_{}_m{}".format(kernel_size, l))
+                char_rep = self.feedforward(char_rep, dims=[4*dim, dim], scope="char_k{}_f{}".format(kernel_size, l))
+                self.char_weights["{}_1".format(kernel_size)] = weight
 
             char_rep = tf.reduce_sum(char_rep, axis=1)
             all_tensors.append(char_rep)
@@ -93,12 +73,6 @@ class HAttention(object):
         
         print("text_rep+char_rep shape = ", text_rep.get_shape())
         
-        # meta features
-        if self.conf.use_meta:
-            time_vec = self.embedding(self.input_time, vocab_size=self.conf.time_size, dim=self.conf.meta_dim, zero_pad=False, scope="time_emb")
-            lang_vec = self.embedding(self.input_lang, vocab_size=self.conf.lang_size, dim=self.conf.meta_dim, zero_pad=False, scope="lang_emb")
-            timezone_vec = self.embedding(self.input_timezone, vocab_size=self.conf.timezone_size, dim=self.conf.meta_dim, zero_pad=False, scope="timezone_emb")
-
         # classifier
         if self.conf.reg:
             reg = tf.contrib.layers.l2_regularizer(scale=self.conf.reg_weight)
@@ -106,48 +80,24 @@ class HAttention(object):
             reg = None
 
         # city
-        #output = tf.layers.dense(text_rep, self.conf.hidden_dim, activation=tf.nn.relu, kernel_regularizer=reg)
-        #output = tf.nn.dropout(output, self.input_dropout_rate)
         output = text_rep
-        if self.conf.use_meta:
-            output = tf.concat([text_rep, time_vec, lang_vec, timezone_vec], axis=-1)
         output = tf.layers.dense(output, self.conf.output_size, kernel_regularizer=reg)
-        print("output shape = ", output.get_shape())
         
         # country
-        #country_output = tf.layers.dense(text_rep, self.conf.hidden_dim, activation=tf.nn.relu, kernel_regularizer=reg)
-        #country_output = tf.nn.dropout(country_output, self.input_dropout_rate)
         country_output = text_rep
         country_output = tf.layers.dense(country_output, self.conf.country_output_size, kernel_regularizer=reg)
        
-        # longitude, latitude
-        longitude_output = text_rep
-        longitude_output = tf.layers.dense(longitude_output, 50, kernel_regularizer=reg, activation=tf.nn.sigmoid)
-        longitude_output = tf.layers.dense(longitude_output, 1, kernel_regularizer=reg)
-
-        latitude_output = text_rep
-        latitude_output = tf.layers.dense(latitude_output, 50, kernel_regularizer=reg, activation=tf.nn.sigmoid)
-        latitude_output = tf.layers.dense(latitude_output, 1, kernel_regularizer=reg)
-
         # loss
         self.city_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=output, labels=self.input_label)
         self.city_loss = tf.reduce_mean(self.city_loss)
         self.country_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=country_output, labels=self.input_country_label)
         self.country_loss = tf.reduce_mean(self.country_loss)
-        self.longitude_loss = tf.losses.hinge_loss(self.input_long_label, longitude_output, weights=0.1)
-        self.latitude_loss = tf.losses.hinge_loss(self.input_lat_label, latitude_output, weights=0.1)
-
         self.loss = self.city_loss + self.country_loss
-        #self.loss = self.city_loss
-
-        if self.conf.use_coordinate:
-            self.loss += self.longitude_loss + self.latitude_loss
 
         if self.conf.reg:
             self.loss += tf.losses.get_regularization_loss()
 
         self.optim = tf.train.AdamOptimizer(learning_rate=self.conf.learning_rate).minimize(self.loss)
-        #self.optim = tf.train.GradientDescentOptimizer(learning_rate=self.conf.learning_rate).minimize(self.loss)
 
         # prediction
         self.output = tf.nn.softmax(output)
@@ -157,8 +107,7 @@ class HAttention(object):
         self.result = correct_pred
         
         # save
-        self.saver = tf.train.Saver(tf.global_variables())
-        #print(tf.global_variables())
+        self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
     
     def cnn_layer(self, vector, name):
         with tf.name_scope(name):

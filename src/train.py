@@ -17,8 +17,8 @@ import h5py
 import argparse
 
 # TODO:
-# (1) when using "keep_training", check available first.
-# (2) check save model & batch normalization
+# (1) check batch normalization
+# (2) Early Stop
 
 def str2dict(s):
     filter_dict = {}
@@ -52,17 +52,19 @@ def parse_arg():
     parser.add_argument("--emb_dim", dest="emb_dim", help="word embedding dimension", type=int, default=200)
     parser.add_argument("--hidden_dim", dest="hidden_dim", help="hidden dimension", type=int, default=200)
     parser.add_argument("--num_head", dest="num_head", help="number of head of the transformer", type=int, default=10)
+    parser.add_argument("--layer_num", dest="layer_num", help="number of layer of the transformer", type=int, default=2)
 
     parser.add_argument("--char_dim", dest="char_dim", help="character embedding dimension", type=int, default=100)
     parser.add_argument("--char_hidden_dim", dest="char_hidden_dim", help="character hidden dimension", type=int, default=100)
     parser.add_argument("--char_num_head", dest="char_num_head", help="number of head of the character transformer", type=int, default=8)
+    parser.add_argument("--char_layer_num", dest="char_layer_num", help="number of layer of the character transformer", type=int, default=2)
     parser.add_argument("--filter", dest="filter_list", help="filter configuration of the character CNN, ex: 3:64-4:64", type=str2dict, default={3:64, 4:64, 5:64, 6:64, 7:64})
 
-    parser.add_argument("--use_meta", dest="use_meta", help="whether use meta feature or not", type=str2bool, default=False)
-    parser.add_argument("--meta_dim", dest="meta_dim", help="dimension of the meta data", type=int, default=50)
-    
-    parser.add_argument("--use_coordinate", dest="use_coordinate", help="whether use coordinate feature or not", type=str2bool, default=False)
-    parser.add_argument("--normalize_coordinate", dest="normalize_coordinate", help="whether normalize the coordinate or not", type=str2bool, default=False)
+    # meta data
+    #parser.add_argument("--use_meta", dest="use_meta", help="whether use meta feature or not", type=str2bool, default=False)
+    #parser.add_argument("--meta_dim", dest="meta_dim", help="dimension of the meta data", type=int, default=50)
+    #parser.add_argument("--use_coordinate", dest="use_coordinate", help="whether use coordinate feature or not", type=str2bool, default=False)
+    #parser.add_argument("--normalize_coordinate", dest="normalize_coordinate", help="whether normalize the coordinate or not", type=str2bool, default=False)
 
     # training setting
     parser.add_argument("--dropout_rate", dest="dropout_rate", help="dropout rate across the model", type=float, default=0.05)
@@ -77,9 +79,6 @@ def parse_arg():
     parser.add_argument("--note", dest="note", help="note for the model name", type=str, default="")
     parser.add_argument("--gpu", dest="gpu", help="gpu setting", type=str, default="0")
     parser.add_argument("--train_data", dest="train_data", help="training_data", type=str, default="train")
-
-    #geo_cord = False
-    #meta_feature = False
 
     return parser.parse_args()
 
@@ -187,22 +186,10 @@ def train_main():
     config.country_output_size = len(country_dictionary)
     config.vocab_size = len(dictionary) - 1
     config.char_size = len(char_dictionary) - 1
-    config.time_size = 24*6
-    config.timezone_size = len(timezone_dictionary)
-    config.lang_size = len(lang_dictionary)
     
     config.save(os.path.join(folder_path, "config.json"))
 
-    # scale longitude & latitude
-    if config.normalize_coordinate:
-        train["longitude"] = train["longitude"] / 180.0
-        valid["longitude"] = valid["longitude"] / 180.0
-        test["longitude"] = test["longitude"] / 180.0
-    
-        train["latitude"] = train["latitude"] / 90.0
-        valid["latitude"] = valid["latitude"] / 90.0
-        test["latitude"] = test["latitude"] / 90.0
-    
+    # initialize history file
     with open(os.path.join(folder_path, "history.json"), 'w', encoding='utf-8') as outfile:
         pass
 
@@ -222,27 +209,15 @@ def train_main():
             
             print("initialize variable")
             sess.run(tf.global_variables_initializer())
-
-            """
-            if not config.keep_training:
-                print("initialize variable")
-                # initialization
-                sess.run(tf.global_variables_initializer())
-                print("finish initialize")
-                config.start_epoch = -1
-            else:
-                model.saver.restore(sess, os.path.join(config.model_dir, "model_e{}".format(config.start_epoch)))
-            """
-
-            train_name_list = ("text", "char", "time", "timezone", "lang", "label", "country", "longitude", "latitude")
-            test_name_list = ("text", "char", "time", "timezone", "lang", "label")
+    
+            train_name_list = ("text", "char", "label", "country")
+            test_name_list = ("text", "char", "label")
             total_loss = 0
             total_acc = 0
             for e in range(0, config.epochs):
                 with Timer("Training epoch [{:>3}]".format(e), 2):
-                    for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
-                            y_label, y_country, y_long, y_lat) in get_batch_data(
-                                    train, train_name_list, config.batch_size):
+                    for count, total_count, (x_text, x_char, y_label, y_country) in get_batch_data(
+                            train, train_name_list, config.batch_size):
                         
                         _, loss, acc = sess.run([model.optim, model.loss, model.acc], feed_dict={
                             model.input_text:x_text,
@@ -250,39 +225,33 @@ def train_main():
                             model.input_label:y_label,
                             model.input_country_label:y_country,
                             model.input_dropout_rate:config.dropout_rate,
-                            #model.input_timezone:x_timezone,
-                            #model.input_time:x_time,
-                            #model.input_lang:x_lang,
-                            #model.input_long_label:y_long,
-                            #model.input_lat_label:y_lat,
                         })
                         total_loss = (total_loss * (count-1) + loss) / count
                         total_acc = (total_acc * (count-1) + acc) / count
                         
                         if count % 1 == 0:
-                            print("\riter: {}/{} [{:.2f}%] acc={:.5f}, loss={:.5f}".format(
+                            print("\x1b[2K\riter: {}/{} [{:.2f}%] acc={:.5f}, loss={:.5f}".format(
                                 count, total_count, count/total_count*100, total_acc, total_loss
                             ), end="")
-
                     print()
                 
                 # evaluation
                 results = []
                 predicts = []
-                for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
-                        y_label) in get_batch_data(valid, test_name_list, config.batch_size, phase="valid"):
+                for count, total_count, (x_text, x_char, y_label) in get_batch_data(
+                        valid, test_name_list, config.batch_size, phase="valid"):
+
                     result, predict, acc = sess.run([model.result, model.predict, model.acc], feed_dict={
                         model.input_text:x_text,
                         model.input_char:x_char,
                         model.input_label:y_label,
                         model.input_dropout_rate:0.0
-                        #model.input_time:x_time,
-                        #model.input_timezone:x_timezone,
-                        #model.input_lang:x_lang,
                     })
                     results.append(result)
                     predicts.append(predict)
 
+                    print("\x1b[2K\rEvaluation on validation set [{:.2f}%]".format(100.0*count/total_count), end="")
+                print()
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
                 acc = np.sum(results) / results.shape[0]
@@ -298,8 +267,9 @@ def train_main():
                 # test
                 results = []
                 predicts = []
-                for count, total_count, (x_text, x_char, x_time, x_timezone, x_lang, 
-                        y_label) in get_batch_data(test, test_name_list, config.batch_size, phase="test"):
+                for count, total_count, (x_text, x_char, y_label) in get_batch_data(
+                        test, test_name_list, config.batch_size, phase="test"):
+
                     result, predict, acc = sess.run([
                         model.result, 
                         model.predict,
@@ -309,13 +279,11 @@ def train_main():
                         model.input_char:x_char,
                         model.input_label:y_label,
                         model.input_dropout_rate:0.0
-                        #model.input_time:x_time,
-                        #model.input_timezone:x_timezone,
-                        #model.input_lang:x_lang,
                     })
                     results.append(result)
                     predicts.append(predict)
-
+                    print("\x1b[2K\rEvaluation on testing set [{:.2f}%]".format(100.0*count/total_count), end="")
+                print()
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
                 acc = np.sum(results) / results.shape[0]
@@ -328,7 +296,6 @@ def train_main():
                     p_lat, p_lon = geo_mapping[class_mapping[p]]
                     d = geopy.distance.distance((p_lat, p_lon), (lat, lon)).miles
                     distance_list.append(d)
-                
                 try:
                     avg_d = sum(distance_list)/len(distance_list)
                     med_d = compute_median(distance_list)
@@ -353,6 +320,9 @@ def train_main():
 
                 with open(os.path.join(folder_path, "history.json"), 'a', encoding='utf-8') as outfile:
                     outfile.write(json.dumps(history_info) + "\n")
+
+    # output the best model and result
+
 
 if __name__ == "__main__":
     train_main()

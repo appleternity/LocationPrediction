@@ -66,22 +66,6 @@ def turn_label2id(data_list, dictionary, country_dictionary):
         data["tweet_city"] = data["tweet_city"].apply(lambda city: dictionary.get(city, unk_city))
         data["tweet_country"] = data["tweet_country"].apply(lambda country: country_dictionary.get(country, unk_country))
 
-            # TODO: check if this will happen
-            #if i != 3: # train & valid
-            #    label[_id] = (
-            #        city, 
-            #        country, 
-            #        city_map.get(l["tweet_city"], l["tweet_longitude"]), 
-            #        city_map.get(l["tweet_city"], l["tweet_latitude"])
-            #    )
-            #else:
-            #    label[_id] = (
-            #        city,
-            #        country,
-            #        l["tweet_longitude"],
-            #        l["tweet_latitude"]
-            #    )
-
 def my_time_parsing(t):
     hour, minute, _ = t.split(" ")[3].split(":")
     return int(int(hour)*6 + int(minute)//10)
