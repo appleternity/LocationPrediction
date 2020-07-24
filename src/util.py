@@ -82,6 +82,8 @@ class Configuration(object):
         elif path is not None:
             with open(path, 'r', encoding='utf-8') as infile:
                 self.__dict__.update(json.load(infile))
+
+                self.filter_list = {int(k):int(v) for k, v in self.filter_list.items()}
         else:
             print("Please at least pass arg or path to initialize the Configuration object.")
 
@@ -119,9 +121,9 @@ def test_timer():
     with Timer(name="Testing", verbose=2):
         time.sleep(5)
 
-def get_batch_data(data, name_list, batch_size, label_name="label", phase="train"):
+def get_batch_data(data, name_list, batch_size, phase="train"):
     if phase == "train":
-        true_length = data[label_name].shape[0]
+        true_length = data[name_list[0]].shape[0]
         index_list = np.random.permutation(true_length)
         index_list = index_list[:true_length//batch_size*batch_size] # drop the rest of data
         index_list = index_list.reshape(-1, batch_size)
@@ -131,7 +133,7 @@ def get_batch_data(data, name_list, batch_size, label_name="label", phase="train
             yield count, total_count, (data[name][indices] for name in name_list)
 
     elif phase == "test" or phase == "valid":
-        true_length = data[label_name].shape[0]
+        true_length = data[name_list[0]].shape[0]
         total_count = int(np.ceil(true_length / batch_size))
         count = 0
         for i in range(0, true_length, batch_size):

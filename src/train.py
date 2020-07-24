@@ -198,7 +198,6 @@ def train_main():
             allow_soft_placement=True,
             gpu_options=tf.GPUOptions(allow_growth=True)
         )
-
         sess = tf.Session(config=session_conf)
         with sess.as_default():
 
