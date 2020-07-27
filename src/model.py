@@ -112,29 +112,6 @@ class HAttention(object):
         # save
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
     
-    def cnn_layer(self, vector, name):
-        with tf.name_scope(name):
-            if self.conf.reg:
-                reg = tf.contrib.layers.l2_regularizer(scale=self.conf.reg_weight)
-            else:
-                reg = None
-            results = []
-            for kernel_size, filter_num in self.conf.filter_list.items():
-                conv = layers.conv1d(
-                    vector,
-                    filter_num,
-                    kernel_size,
-                    activation=tf.nn.relu,
-                    kernel_regularizer=reg,
-                    name="cnn_k{}_f{}".format(name, kernel_size, filter_num)
-                )
-                result = tf.reduce_max(conv, reduction_indices=[1])
-                results.append(result)
-
-            vec = tf.concat(results, -1)
-            vec = tf.nn.dropout(vec, self.keep_rate)
-            return vec
-
     def cnn(self, vector, name):
         with tf.name_scope(name):
             if self.conf.reg:
@@ -159,7 +136,7 @@ class HAttention(object):
                     kernel_size-1,
                     name="max_pooling_k{}_f{}".format(kernel_size, filter_num)
                 )
-                #res = tf.nn.dropout(res, self.input_dropout_rate)
+                res = tf.nn.dropout(res, self.keep_rate)
                 res = self.normalize(res)
                 outputs[kernel_size] = res
 
@@ -193,16 +170,6 @@ class HAttention(object):
             outputs = tf.nn.embedding_lookup(lookup_table, position_ind)
         
             return outputs
-
-    def sentence_attention(self, inputs):
-        vec = tf.layers.dense(inputs, 1)
-        vec = tf.squeeze(vec, 2)
-        paddings = tf.ones_like(vec)*(-2**32+1)
-        vec = tf.where(tf.equal(vec, 0), paddings, vec)
-        vec = tf.nn.softmax(vec)
-        output = tf.matmul(tf.reshape(vec, (-1, 1, self.conf.max_len)), inputs)
-        output = tf.squeeze(output, 1)
-        return output
 
     def normalize(self, inputs, epsilon=1e-8, scope="ln", reuse=None):
         with tf.variable_scope(scope, reuse=reuse):
