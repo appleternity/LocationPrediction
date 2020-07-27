@@ -45,7 +45,7 @@ $ python train.py [-h] [--max_len MAX_LEN] [--max_char_len MAX_CHAR_LEN]
 | --char_hidden_dim   | INT (Default: 100)                         | character hidden dimension                               |
 | --char_num_head     | INT (Default: 8)                           | number of head of the character transformer              |
 | --char_layer_num    | INT (Default: 2)                           | number of layer of the character transformer             |
-| --filter            | STRING (Default: 3:64-4:64-5:64-6:64-7:64) | filter configuration of the character CNN, ex: 3:64-4:64 |
+| --filter            | STRING <br>(Default: 3:64-4:64-5:64-6:64-7:64) | filter configuration of the character CNN, ex: 3:64-4:64 |
 | --dropout_rate      | FLOAT (Default: 0.05)                      | dropout rate across the model                            |
 | --learning_rate     | FLOAT (Default: 1e-4)                      | learning rate                                            |
 | --batch_size        | INT (Default: 128)                         | batch size                                               |
