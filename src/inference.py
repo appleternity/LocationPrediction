@@ -125,7 +125,7 @@ def inference_main():
                 "city": city_list, 
                 "country": country_list,
             }
-            print(result)
+            #print(result)
             table = pd.DataFrame(result, index=index_list)
             table.to_csv(arg.output_file)
 
