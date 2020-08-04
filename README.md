@@ -6,6 +6,15 @@ Please follow the instruction from WNUT 2016 Geo-Shared-Task to acquire the data
 
 WNUT 2016 Geo-Shared-Task: https://noisy-text.github.io/2016/geo-shared-task.html
 
+## Path Configuration
+Before running the code, please modify the path settint in the **src/config.py** file.
+```python
+root_dir = "PATH_TO_THE_GIT_REPO"
+```
+
+## Development Environment
+Python3.6 + Tensorflow 1.12.0
+
 ## Data Preprocessing
 Take the downloaded tweets and the label file, extract the needed data field, perform tokenization on the tweets, and aggregrate the ground truth.
 
@@ -16,6 +25,12 @@ $ python preprocessing.py --tweet_path ../data/test_tweet.json --label_path ../d
 ```
 
 ## Model Training
+The script for training the model from scratch. The default hyperparameter is used in the paper so you can use the following command to start the training.
+```console
+$ python train.py
+```
+
+If you would like to change the hyperparameter, please refer to the following argument settings.
 ```console
 $ python train.py [-h] [--max_len MAX_LEN] [--max_char_len MAX_CHAR_LEN]
                 [--minfreq MINFREQ] [--emb_dim EMB_DIM]
@@ -46,7 +61,7 @@ $ python train.py [-h] [--max_len MAX_LEN] [--max_char_len MAX_CHAR_LEN]
 | --char_num_head     | INT (Default: 8)                           | number of head of the character transformer              |
 | --char_layer_num    | INT (Default: 2)                           | number of layer of the character transformer             |
 | --filter            | STRING <br>(Default: 3:64-4:64-5:64-6:64-7:64) | filter configuration of the character CNN, ex: 3:64-4:64 |
-| --dropout_rate      | FLOAT (Default: 0.05)                      | dropout rate across the model                            |
+| --dropout_rate      | FLOAT (Default: 0.3)                       | dropout rate across the model                            |
 | --learning_rate     | FLOAT (Default: 1e-4)                      | learning rate                                            |
 | --batch_size        | INT (Default: 128)                         | batch size                                               |
 | --epochs            | INT (Default: 30)                          | number of epochs for training                            |
@@ -95,7 +110,36 @@ $ python inference.py [-h] --model_folder MODEL_FOLDER --target_epoch
 
 
 ## Trained Model
-We will provide the trained model in a near future.
+Please find the release trained model here.
+
+https://drive.google.com/file/d/1M8AxKuVmwRM3jEVk3iYH0BEmKOKsr_zP/view?usp=sharing
+
+The performance of the released model is as follow. 
+|               | City Acc | Country Acc |
+|---------------|----------|-------------|
+| Release Model | 0.2163   | 0.6110      |
+
+Uncompress the .tar file after downloading the model.
+```console
+$ tar xvf release.tar
+```
+
+You can run the inference script by using the following command.
+```console
+$ python inference.py --model_folder ../model/release --target_epoch 1 --text_file ../sample_text/sample.txt --output_file ../sample_text/output.csv --gpu 6
+```
+
+Here, I have my folders in the following structure.
+```
+root_dir (LocationPrediction)
+| - src
+| - model
+| | - release
+| - sample_text
+```
+
+## Any Questions?
+Please sent me an email at chiehyang@psu.edu
 
 ## Citation
 Please cite the following papers if you use this repo for testing, auto geo-labeling, or comparison.
@@ -113,5 +157,3 @@ Please cite the following papers if you use this repo for testing, auto geo-labe
   ABSTRACT={Geographic information provides an important insight into many data mining and social media systems. However, users are reluctant to provide such information due to various concerns, such as inconvenience, privacy, etc. In this paper, we aim to develop a deep learning based solution to predict geographic information for tweets. The current approaches bear two major limitations, including (a) hard to model the long term information and (b) hard to explain to the end users what the model learns. To address these issues, our proposed model embraces three key ideas. First, we introduce a multi-head self-attention model for text representation. Second, to further improve the result on informal language, we treat subword as a feature in our model. Lastly, the model is trained jointly with the city and country to incorporate the information coming from different labels. The experiment performed on W-NUT 2016 Geo-tagging shared task shows our proposed model is competitive with the state-of-the-art systems when using accuracy measurement, and in the meanwhile, leading to a better distance measure over the existing approaches.}
 }
 ```
-
-
