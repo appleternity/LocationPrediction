@@ -7,11 +7,11 @@ from config import *
 import numpy as np
 
 def test_data():
-    note = "1m"
+    note = "all_new_l2_d0.3"
     folder_path = os.path.join(model_dir, "location_{}".format(note))
 
     print("loading processed data directly")
-    train = readh5(os.path.join(folder_path, "train.h5"))
+    #train = readh5(os.path.join(folder_path, "train.h5"))
     valid = readh5(os.path.join(folder_path, "valid.h5"))
     test = readh5(os.path.join(folder_path, "test.h5"))
     dictionary = load_dictionary(os.path.join(folder_path, "dictionary.json"))
@@ -26,6 +26,7 @@ def test_data():
     text_decode = {i:t for t, i in dictionary.items()}
 
     # reconstruct train
+    """
     sample_size = 100
     index = np.random.permutation(train["text"].shape[0])[:10]
     text = train["text"][index]
@@ -39,7 +40,8 @@ def test_data():
         print(raw_char)
         print(char_sample)
         print()
-
+    """
+    
     # reconstruct valid
     sample_size = 100
     index = np.random.permutation(valid["text"].shape[0])[:10]
@@ -69,8 +71,6 @@ def test_data():
         print(raw_char)
         print(char_sample)
         print()
-
-
 
 def main():
     test_data()

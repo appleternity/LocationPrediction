@@ -73,6 +73,7 @@ def parse_arg():
     parser.add_argument("--epochs", dest="epochs", help="number of epochs for training", type=int, default=30)
     parser.add_argument("--reg", dest="reg", help="whether use regularizer or not", type=str2bool, default=False)
     parser.add_argument("--reg_weight", dest="reg_weight", help="weighting for regularizer", type=float, default=1e-4)
+    parser.add_argument("--early_stop_epoch", dest="early_stop_epoch", help="number of epoch for early stop", type=int, default=3)
 
     # other setting
     parser.add_argument("--data_redo", dest="data_redo", help="re-process the data again", type=str2bool, default=False)
@@ -210,9 +211,16 @@ def train_main():
             sess.run(tf.global_variables_initializer())
     
             train_name_list = ("text", "char", "label", "country")
-            test_name_list = ("text", "char", "label")
+            test_name_list = ("text", "char", "label", "country")
             total_loss = 0
             total_acc = 0
+
+            best_epoch = -1
+            best_valid_acc = 0.0
+            best_acc = 0.0
+            best_median = 0.0
+            best_mean = 0.0
+            best_country_acc = 0.0
             for e in range(0, config.epochs):
                 with Timer("Training epoch [{:>3}]".format(e), 2):
                     for count, total_count, (x_text, x_char, y_label, y_country) in get_batch_data(
@@ -236,64 +244,80 @@ def train_main():
                 
                 # evaluation
                 results = []
+                country_results = []
                 predicts = []
-                for count, total_count, (x_text, x_char, y_label) in get_batch_data(
+                for count, total_count, (x_text, x_char, y_label, y_country) in get_batch_data(
                         valid, test_name_list, config.batch_size, phase="valid"):
 
-                    result, predict, acc = sess.run([model.result, model.predict, model.acc], feed_dict={
+                    result, predict, acc, country_result = sess.run([
+                        model.result, 
+                        model.predict, 
+                        model.acc,
+                        model.country_result,
+                    ], feed_dict={
                         model.input_text:x_text,
                         model.input_char:x_char,
                         model.input_label:y_label,
+                        model.input_country_label: y_country,
                         model.input_dropout_rate:0.0
                     })
                     results.append(result)
                     predicts.append(predict)
+                    country_results.append(country_result)
 
                     print("\x1b[2K\rEvaluation on validation set [{:.2f}%]".format(100.0*count/total_count), end="")
                 print()
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
-                acc = np.sum(results) / results.shape[0]
-                print("Valid Acc = {:.6f}".format(acc))
+                valid_acc = results.mean()
+                country_results = np.hstack(country_results)
+                country_acc = country_results.mean()
+                print("Valid Acc = {:.6f}, Country Acc = {:.6f}".format(valid_acc, country_acc))
                
                 with open(os.path.join(folder_path, "predict_e{}.json".format(e)), 'w', encoding='utf-8') as outfile:
                     json.dump(predicts.tolist(), outfile, indent=4)
                 
                 # save model
                 model.saver.save(sess=sess, save_path=os.path.join(folder_path, "model_e{}".format(e)))
-                history_info = {"epoch":e, "valid_acc":acc, "train_acc":total_acc, "train_loss":total_loss}
+                history_info = {"epoch":e, "valid_acc":valid_acc, "valid_country_acc":country_acc, "train_acc":total_acc, "train_loss":total_loss}
                 
                 # test
                 results = []
+                country_results = []
                 predicts = []
-                for count, total_count, (x_text, x_char, y_label) in get_batch_data(
+                for count, total_count, (x_text, x_char, y_label, y_country) in get_batch_data(
                         test, test_name_list, config.batch_size, phase="test"):
 
-                    result, predict, acc = sess.run([
+                    result, predict, acc, country_result = sess.run([
                         model.result, 
                         model.predict,
                         model.acc,
+                        model.country_result, 
                     ], feed_dict={
                         model.input_text:x_text,
                         model.input_char:x_char,
                         model.input_label:y_label,
+                        model.input_country_label:y_country,
                         model.input_dropout_rate:0.0
                     })
                     results.append(result)
                     predicts.append(predict)
+                    country_results.append(country_result)
                     print("\x1b[2K\rEvaluation on testing set [{:.2f}%]".format(100.0*count/total_count), end="")
                 print()
                 results = np.hstack(results)
                 predicts = np.hstack(predicts)
-                acc = np.sum(results) / results.shape[0]
-                print("Test Acc = {:.6f}".format(acc))
+                acc = results.mean()
+                country_results = np.hstack(country_results)
+                country_acc = country_results.mean()
+                print("Test Acc = {:.6f}, Country Acc = {:.6f}".format(acc, country_acc))
 
                 # distance
                 distance_list = []
                 for p, lat, lon in zip(predicts, test["latitude"], test["longitude"]):
-                    if class_mapping[p] not in geo_mapping: continue
+                    if class_mapping[p] not in geo_mapping: continue # unk
                     p_lat, p_lon = geo_mapping[class_mapping[p]]
-                    d = geopy.distance.distance((p_lat, p_lon), (lat, lon)).miles
+                    d = geopy.distance.distance((p_lat, p_lon), (lat, lon)).km
                     distance_list.append(d)
                 try:
                     avg_d = sum(distance_list)/len(distance_list)
@@ -320,7 +344,37 @@ def train_main():
                 with open(os.path.join(folder_path, "history.json"), 'a', encoding='utf-8') as outfile:
                     outfile.write(json.dumps(history_info) + "\n")
 
+
+                # check validation score
+                if valid_acc >= best_valid_acc:
+                    best_valid_acc = valid_acc
+                    best_acc = acc
+                    best_epoch = e
+                    best_median = med_d
+                    best_mean = avg_d
+                    best_country_acc = country_acc
+                    print("best_epoch = {}, best_valid_acc = {:.4f}, best_acc = {:.4f}".format(best_epoch, best_valid_acc, best_acc))
+                    print("best_median = {:.4f}, best_mean = {:.4f}, best_country_acc = {:.4f}".format(best_median, best_mean, best_country_acc))
+
+                if e - best_epoch > config.early_stop_epoch:
+                    print("Early Stop at Epoch {}".format(e))
+                    break
+
     # output the best model and result
+    print("==============================")
+    print("Result")
+    print("best_epoch = {}, best_valid_acc = {}, best_acc = {}".format(best_epoch, best_valid_acc, best_acc))
+    print("best_median = {}, best_mean = {}, best_country_acc = {}".format(best_median, best_mean, best_country_acc))
+
+    with open(os.path.join(folder_path, "result.json"), 'w', encoding='utf-8') as outfile:
+        json.dump({
+            "best_epoch": best_epoch,
+            "best_valid_acc": best_valid_acc,
+            "best_acc": best_acc,
+            "best_median": best_median,
+            "best_mean": best_mean,
+            "best_country_acc": best_country_acc,
+        }, outfile, indent=4)
 
 
 if __name__ == "__main__":

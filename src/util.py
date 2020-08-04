@@ -70,12 +70,13 @@ class Configuration(object):
             #self.normalize_coordinate = arg.normalize_coordinate
 
             # training setting
-            self.dropout_rate   = arg.dropout_rate
-            self.learning_rate  = arg.learning_rate
-            self.batch_size     = arg.batch_size
-            self.epochs         = arg.epochs
-            self.reg            = arg.reg
-            self.reg_weight     = arg.reg_weight
+            self.dropout_rate       = arg.dropout_rate
+            self.learning_rate      = arg.learning_rate
+            self.batch_size         = arg.batch_size
+            self.epochs             = arg.epochs
+            self.reg                = arg.reg
+            self.reg_weight         = arg.reg_weight
+            self.early_stop_epoch   = arg.early_stop_epoch
 
             self.train_data = arg.train_data
 

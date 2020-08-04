@@ -54,10 +54,14 @@ def turn2id(data_list, dictionary, char_dictionary, max_len=30, max_char_len=140
     for data in data_list:
         if "text_token" in data:
             data["text"] = data["text_token"].apply(lambda sent: [dictionary.get(t, unk_word) for t in sent[:max_len]])
+            data["char"] = data["raw_text"].apply(lambda sent: [char_dictionary.get(c, unk_char) for c in sent[:max_char_len]])
         else:
+            # pre-process first
             data["text_token"] = data["text"].apply(lambda x: x.lower().split(" "))
             data["text"] = data["text_token"].apply(lambda sent: [dictionary.get(t, unk_word) for t in sent[:max_len]])
-        data["char"] = data["raw_text"].apply(lambda sent: [char_dictionary.get(c, unk_char) for c in sent[:max_char_len]])
+
+            data["raw_text"] = data["raw_text"].apply(lambda x: x.lower())
+            data["char"] = data["raw_text"].apply(lambda sent: [char_dictionary.get(c, unk_char) for c in sent[:max_char_len]])
 
 def turn_label2id(data_list, dictionary, country_dictionary):
     unk_city = dictionary["<unk>"]

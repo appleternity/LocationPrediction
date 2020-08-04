@@ -108,7 +108,10 @@ class HAttention(object):
 
         self.country_output = tf.nn.softmax(country_output)
         self.country_predict = tf.cast(tf.argmax(self.country_output, 1), tf.int32)
-        
+        country_correct_pred = tf.equal(self.input_country_label, self.country_predict)
+        self.country_acc = tf.reduce_mean(tf.cast(country_correct_pred, tf.float32))
+        self.country_result = country_correct_pred
+
         # save
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
     
