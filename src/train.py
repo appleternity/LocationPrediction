@@ -67,7 +67,7 @@ def parse_arg():
     #parser.add_argument("--normalize_coordinate", dest="normalize_coordinate", help="whether normalize the coordinate or not", type=str2bool, default=False)
 
     # training setting
-    parser.add_argument("--dropout_rate", dest="dropout_rate", help="dropout rate across the model", type=float, default=0.05)
+    parser.add_argument("--dropout_rate", dest="dropout_rate", help="dropout rate across the model", type=float, default=0.3)
     parser.add_argument("--learning_rate", dest="learning_rate", help="learning rate", type=float, default=1e-4)
     parser.add_argument("--batch_size", dest="batch_size", help="batch size", type=int, default=128)
     parser.add_argument("--epochs", dest="epochs", help="number of epochs for training", type=int, default=30)
